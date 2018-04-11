@@ -11,7 +11,7 @@ class Model():
                    (2 * np.pi * sigma1 * sigma2 * tf.sqrt(1 - tf.square(rho)))
 
         def expand(x, dim, N):
-            return tf.concat(dim, [tf.expand_dims(x, dim) for _ in range(N)])
+            return tf.concat([tf.expand_dims(x, dim) for _ in range(N)], dim)
 
         if args.action == 'train':
             args.b == 0
@@ -20,7 +20,7 @@ class Model():
         self.x = tf.placeholder(dtype=tf.float32, shape=[None, args.T, 3])
         self.y = tf.placeholder(dtype=tf.float32, shape=[None, args.T, 3])
 
-        x = tf.split(1, args.T, self.x)
+        x = tf.split(self.x, args.T, 1)
         x_list = [tf.squeeze(x_i, [1]) for x_i in x]
         if args.mode == 'predict':
             self.cell = tf.nn.rnn_cell.BasicLSTMCell(args.rnn_state_size)
@@ -51,9 +51,9 @@ class Model():
             for t in range(args.T):
                 with tf.variable_scope("cell1", reuse=DO_SHARE):
                     # h_cell1, cell1_state = self.cell1(tf.concat(1, [x_list[t]]), cell1_state)
-                    h_cell1, cell1_state = self.cell1(tf.concat(1, [x_list[t], w]), cell1_state)
+                    h_cell1, cell1_state = self.cell1(tf.concat([x_list[t], w], 1), cell1_state)
                 k_gaussian = tf.nn.xw_plus_b(h_cell1, h2k_w, h2k_b)
-                alpha_hat, beta_hat, kappa_hat = tf.split(1, 3, k_gaussian)
+                alpha_hat, beta_hat, kappa_hat = tf.split(k_gaussian, 3, 1)
                 alpha = tf.expand_dims(tf.exp(alpha_hat), 2)
                 beta = tf.expand_dims(tf.exp(beta_hat), 2)
                 self.kappa = kappa_prev + tf.expand_dims(tf.exp(kappa_hat), 2)
@@ -64,11 +64,11 @@ class Model():
                 # for batch in range(args.batch_size):
                 #     w_list[batch] = tf.matmul(phi[batch: batch + 1, :], self.c_vec[batch, :, :])
                 # w = tf.concat(0, w_list)
-                w = tf.squeeze(tf.batch_matmul(self.phi, self.c_vec), [1])
+                w = tf.squeeze(tf.matmul(self.phi, self.c_vec), [1])
                 with tf.variable_scope("cell2", reuse=DO_SHARE):
                     output_t, cell2_state = self.cell2(
                         # tf.concat(1, [x_list[t], h_cell1]), cell2_state)
-                        tf.concat(1, [x_list[t], h_cell1, w]), cell2_state)
+                        tf.concat([x_list[t], h_cell1, w], 1), cell2_state)
                 # with tf.variable_scope("cell1", reuse=DO_SHARE):
                 #     output_t, cell1_state = self.cell1(x_list[t], cell1_state)
                 self.output_list.append(output_t)
@@ -81,12 +81,12 @@ class Model():
         output_w = tf.Variable(tf.constant(0.1, dtype=tf.float32, shape=[args.rnn_state_size, NOUT]))
         output_b = tf.Variable(tf.constant(0.1, dtype=tf.float32, shape=[NOUT]))
 
-        self.output = tf.nn.xw_plus_b(tf.reshape(tf.concat(1, self.output_list), [-1, args.rnn_state_size]),
+        self.output = tf.nn.xw_plus_b(tf.reshape(tf.concat(self.output_list, 1), [-1, args.rnn_state_size]),
                                       output_w, output_b)
-        y1, y2, y_end_of_stroke = tf.unpack(tf.reshape(self.y, [-1, 3]), axis=1)
+        y1, y2, y_end_of_stroke = tf.unstack(tf.reshape(self.y, [-1, 3]), axis=1)
 
         self.end_of_stroke = 1 / (1 + tf.exp(self.output[:, 0]))
-        pi_hat, self.mu1, self.mu2, sigma1_hat, sigma2_hat, rho_hat = tf.split(1, 6, self.output[:, 1:])
+        pi_hat, self.mu1, self.mu2, sigma1_hat, sigma2_hat, rho_hat = tf.split(self.output[:, 1:], 6, 1)
         pi_exp = tf.exp(pi_hat * (1 + args.b))
         pi_exp_sum = tf.reduce_sum(pi_exp, 1)
         self.pi = pi_exp / expand(pi_exp_sum, 1, args.M)
